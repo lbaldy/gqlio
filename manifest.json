@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "GQL DevTools",
+  "version": "1.0.0",
+  "description": "GraphQL request inspector and override tool built into Chrome DevTools",
+  "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
+  "devtools_page": "devtools.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
