@@ -7,7 +7,7 @@
 <body>
 <div id="app">
 
-  <!-- ── Top toolbar ──────────────────────────────────────────────────────── -->
+  <!-- ── Toolbar ─────────────────────────────────────────────────────────── -->
   <div id="toolbar">
     <div class="tab-bar">
       <button class="tab active" data-tab="requests">Requests</button>
@@ -15,12 +15,13 @@
     </div>
     <div class="toolbar-right">
       <input id="search" type="text" placeholder="Filter operations…" autocomplete="off">
-      <button id="btn-clear"  class="icon-btn" title="Clear request log">⊘ Clear</button>
-      <button id="btn-record" class="icon-btn record active" title="Pause recording">● Recording</button>
+      <button id="btn-pause-all" class="icon-btn" title="Pause all overrides" disabled>⏸ Overrides</button>
+      <button id="btn-clear"     class="icon-btn" title="Clear request log">⊘ Clear</button>
+      <button id="btn-record"    class="icon-btn record active" title="Pause recording">● Recording</button>
     </div>
   </div>
 
-  <!-- ── Requests tab ─────────────────────────────────────────────────────── -->
+  <!-- ── Requests tab ────────────────────────────────────────────────────── -->
   <div id="tab-requests" class="tab-pane active">
 
     <div id="req-list-col">
@@ -37,16 +38,29 @@
       <div id="detail-body" class="hidden">
         <div class="detail-tab-bar">
           <button class="detail-tab active" data-detail="query">Query</button>
-          <button class="detail-tab" data-detail="variables">Variables</button>
-          <button class="detail-tab" data-detail="response">Response</button>
-          <button class="detail-tab" data-detail="headers">Headers</button>
+          <button class="detail-tab"        data-detail="variables">Variables</button>
+          <button class="detail-tab"        data-detail="response">Response</button>
+          <button class="detail-tab"        data-detail="headers">Headers</button>
+          <div class="tab-spacer"></div>
+          <button id="btn-expand-all"   class="tree-btn hidden" title="Expand all nodes">⊞ Expand</button>
+          <button id="btn-collapse-all" class="tree-btn hidden" title="Collapse all nodes">⊟ Collapse</button>
         </div>
+
+        <div id="detail-find-bar" class="find-bar hidden">
+          <input  id="detail-find-input" type="text" placeholder="Find…" autocomplete="off">
+          <span   id="detail-find-count" class="find-count"></span>
+          <button id="detail-find-prev"  class="find-nav" title="Previous match">↑</button>
+          <button id="detail-find-next"  class="find-nav" title="Next match">↓</button>
+          <button id="detail-find-close" class="find-close">✕</button>
+        </div>
+
         <div id="detail-content">
-          <pre id="d-query"     class="code-view"></pre>
-          <pre id="d-variables" class="code-view hidden"></pre>
-          <pre id="d-response"  class="code-view hidden"></pre>
-          <pre id="d-headers"   class="code-view hidden"></pre>
+          <pre id="d-query"    class="code-view"></pre>
+          <div id="d-variables" class="jtree-wrap hidden"></div>
+          <div id="d-response"  class="jtree-wrap hidden"></div>
+          <pre id="d-headers"  class="code-view hidden"></pre>
         </div>
+
         <div id="override-bar">
           <span id="override-op-label"></span>
           <div class="override-bar-right">
@@ -59,17 +73,15 @@
 
   </div>
 
-  <!-- ── Overrides tab ────────────────────────────────────────────────────── -->
+  <!-- ── Overrides tab ───────────────────────────────────────────────────── -->
   <div id="tab-overrides" class="tab-pane hidden">
-    <div id="overrides-empty" class="empty">
-      No overrides yet. Select a request and click "Save as Override".
-    </div>
+    <div id="overrides-empty" class="empty">No overrides yet. Select a request and click "Save as Override".</div>
     <div id="overrides-list"></div>
   </div>
 
 </div>
 
-<!-- ── Override editor modal ────────────────────────────────────────────── -->
+<!-- ── Override editor modal ──────────────────────────────────────────────── -->
 <div id="modal" class="modal hidden">
   <div class="modal-box">
     <div class="modal-head">
@@ -79,8 +91,22 @@
     <div class="modal-body">
       <label>Operation Name</label>
       <input id="modal-op-name" type="text" readonly>
-      <label>Response JSON <span id="modal-json-hint">(will be returned instead of the real response)</span></label>
-      <textarea id="modal-response" spellcheck="false"></textarea>
+      <div class="modal-resp-header">
+        <label>Response JSON</label>
+        <div class="modal-mode-toggle">
+          <button class="modal-mode-btn active" data-mode="tree">Tree</button>
+          <button class="modal-mode-btn"        data-mode="edit">Edit</button>
+        </div>
+      </div>
+      <div id="modal-find-bar" class="find-bar hidden">
+        <input  id="modal-find-input" type="text" placeholder="Find…" autocomplete="off">
+        <span   id="modal-find-count" class="find-count"></span>
+        <button id="modal-find-prev"  class="find-nav" title="Previous match">↑</button>
+        <button id="modal-find-next"  class="find-nav" title="Next match">↓</button>
+        <button id="modal-find-close" class="find-close">✕</button>
+      </div>
+      <div id="modal-tree-wrap" class="modal-tree-wrap jtree-wrap"></div>
+      <textarea id="modal-response" class="hidden" spellcheck="false"></textarea>
       <div id="modal-error" class="error hidden"></div>
     </div>
     <div class="modal-foot">
