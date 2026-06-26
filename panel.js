@@ -871,9 +871,24 @@ function wireEvents() {
   el.modal.addEventListener('click', (e) => { if (e.target === el.modal) closeModal(); });
 }
 
+// ── Background port ───────────────────────────────────────────────────────────
+// Keeps the MV3 service worker alive while DevTools is open.
+// Background detects disconnect (DevTools closed) and clears overrides from the page.
+// Background notifies us (GQL_PAGE_NAVIGATED) when the page navigates so we re-push
+// overrides, honouring the current pause state.
+
+function connectToBackground() {
+  const port = chrome.runtime.connect({ name: 'gql-panel' });
+  port.postMessage({ type: 'GQL_PANEL_INIT', tabId: chrome.devtools.inspectedWindow.tabId });
+  port.onMessage.addListener((msg) => {
+    if (msg.type === 'GQL_PAGE_NAVIGATED') persistAndSync();
+  });
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 function init() {
+  connectToBackground();
   loadOverrides();
   wireEvents();
   chrome.devtools.network.onRequestFinished.addListener(onRequestFinished);

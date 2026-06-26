@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "GQL DevTools",
+  "name": "GQL Inspect and Override",
   "version": "1.0.0",
   "description": "GraphQL request inspector and override tool built into Chrome DevTools",
   "permissions": ["storage"],

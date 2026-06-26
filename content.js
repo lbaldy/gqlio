@@ -1,13 +1,12 @@
 // Inject the page-level fetch/XHR interceptor into the main world.
-// Push saved overrides in the onload callback so the listener in injected.js
-// is guaranteed to exist before the postMessage fires.
 const script = document.createElement('script');
 script.src = chrome.runtime.getURL('injected.js');
 script.onload = () => {
   script.remove();
-  chrome.storage.local.get('gqlOverrides', (result) => {
-    window.postMessage({ type: 'GQL_UPDATE_OVERRIDES', overrides: result.gqlOverrides || {} }, '*');
-  });
+  // Signal the panel (via background) that this page context is ready.
+  // The panel will call persistAndSync() to push overrides, honouring pause state.
+  // Using .catch() because the background may not be alive if DevTools is closed.
+  chrome.runtime.sendMessage({ type: 'GQL_CONTENT_READY' }).catch(() => {});
 };
 document.documentElement.appendChild(script);
 
