@@ -3,16 +3,15 @@ const script = document.createElement('script');
 script.src = chrome.runtime.getURL('injected.js');
 script.onload = () => {
   script.remove();
-  // Signal the panel (via background) that this page context is ready.
-  // The panel will call persistAndSync() to push overrides, honouring pause state.
-  // Using .catch() because the background may not be alive if DevTools is closed.
-  chrome.runtime.sendMessage({ type: 'GQL_CONTENT_READY' }).catch(() => {});
+  // Reliable fallback: push overrides from storage once injected.js is ready.
+  // The panel also pushes via inspectedWindow.eval, but that can silently fail
+  // when the page context is being rebuilt during navigation. Reading from storage
+  // here ensures overrides are always applied, even if eval missed the load.
+  chrome.storage.local.get(['gqlOverrides', 'gqlOverridesPaused'], (result) => {
+    const overrides = result.gqlOverrides ?? [];
+    const paused    = result.gqlOverridesPaused ?? false;
+    const toSync    = paused ? [] : (Array.isArray(overrides) ? overrides : []);
+    window.postMessage({ type: 'GQL_UPDATE_OVERRIDES', overrides: toSync }, '*');
+  });
 };
 document.documentElement.appendChild(script);
-
-// Receive override updates from the DevTools panel (relayed via background).
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === 'GQL_SET_OVERRIDES') {
-    window.postMessage({ type: 'GQL_UPDATE_OVERRIDES', overrides: message.overrides }, '*');
-  }
-});

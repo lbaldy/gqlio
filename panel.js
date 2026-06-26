@@ -2,14 +2,33 @@
 const state = {
   requests:        [],
   selectedId:      null,
-  overrides:       {},
+  overrides:       [], // [{ id, operationName, variables, response, enabled }]
   overridesPaused: false,
   recording:       true,
   filter:          '',
   activeDetailTab: 'query',
 };
 
-let modalViewMode = 'tree'; // 'tree' | 'edit'
+let modalViewMode    = 'tree'; // 'tree' | 'edit'
+let currentModalId   = null;   // null = new override, string = editing existing
+let currentModalVars = {};     // variables captured when opening the modal
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => deepEqual(a[k], b[k]));
+}
+
+// Empty stored variables = wildcard (matches any request variables).
+function matchesVariables(ovVars, reqVars) {
+  const ov = ovVars ?? {};
+  if (Object.keys(ov).length === 0) return true;
+  return deepEqual(ov, reqVars ?? {});
+}
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -54,6 +73,7 @@ const el = {
   modalTitle:       $('modal-title'),
   modalClose:       $('modal-close'),
   modalOpName:      $('modal-op-name'),
+  modalVarsWrap:    $('modal-vars-wrap'),
   // modal find bar
   modalFindBar:     $('modal-find-bar'),
   modalFindInput:   $('modal-find-input'),
@@ -200,7 +220,6 @@ function mkSpan(cls, text = '') {
   return s;
 }
 
-// Collapse / expand all toggles inside a container
 function expandAllTree(container) {
   container.querySelectorAll('.jtree-toggle[data-expanded="false"]').forEach((t) => t.click());
 }
@@ -209,7 +228,6 @@ function collapseAllTree(container) {
   container.querySelectorAll('.jtree-toggle[data-expanded="true"]').forEach((t) => t.click());
 }
 
-// Walk up the DOM and expand any hidden jtree-children ancestors
 function expandAncestors(node, root) {
   let p = node.parentElement;
   while (p && p !== root) {
@@ -267,12 +285,9 @@ function runDetailSearch(query) {
     view.innerHTML = escaped.replace(regex, (m) => `<mark class="smatch" data-midx="${n++}">${m}</mark>`);
     detailMatches = Array.from(view.querySelectorAll('.smatch'));
   } else {
-    // JSON tree: search token spans
     const spans = view.querySelectorAll('.jtree-str,.jtree-num,.jtree-bool,.jtree-null,.jtree-key');
-    const seenSpans = new Set();
     spans.forEach((span) => {
       if (!span.textContent.toLowerCase().includes(lq)) return;
-      seenSpans.add(span);
       const escaped = escHtml(span.textContent);
       const regex = new RegExp(`(${escRegex(escHtml(query))})`, 'gi');
       span.innerHTML = escaped.replace(regex, (m) => `<mark class="smatch">${m}</mark>`);
@@ -307,7 +322,6 @@ function clearDetailHighlights() {
     const orig = view.dataset.origText;
     if (orig !== undefined) { view.textContent = orig; delete view.dataset.origText; }
   } else {
-    // Collect unique parent spans before iterating (multiple marks may share a parent)
     const parents = new Set();
     view.querySelectorAll('.smatch').forEach((m) => { if (m.parentElement) parents.add(m.parentElement); });
     parents.forEach((span) => { span.textContent = span.textContent; });
@@ -351,7 +365,6 @@ function clearModalHighlights() {
     el.modalTreeWrap.querySelectorAll('.smatch').forEach((m) => { if (m.parentElement) parents.add(m.parentElement); });
     parents.forEach((span) => { span.textContent = span.textContent; });
   }
-  // textarea uses browser selection — nothing to clear
 }
 
 function runModalSearch(query) {
@@ -366,7 +379,6 @@ function runModalSearch(query) {
   }
 
   if (modalViewMode === 'tree') {
-    // ── tree search: same DOM-mark approach as the detail pane ──
     const lq = query.toLowerCase();
     const spans = el.modalTreeWrap.querySelectorAll('.jtree-str,.jtree-num,.jtree-bool,.jtree-null,.jtree-key');
     spans.forEach((span) => {
@@ -381,7 +393,6 @@ function runModalSearch(query) {
     el.modalFindInput.classList.toggle('no-match', !found && query.trim().length > 0);
     if (found) { modalMatchIdx = 0; applyModalMatch(0); }
   } else {
-    // ── textarea search: index-based ──
     const text = el.modalResponse.value;
     const lq = query.toLowerCase();
     let i = 0;
@@ -413,8 +424,6 @@ function applyModalMatch(idx) {
   } else {
     const m = modalMatches[idx];
     if (!m) return;
-    // Focus textarea to make setSelectionRange visually active, then immediately
-    // re-focus the find input so typing continues without interruption.
     el.modalResponse.focus();
     el.modalResponse.setSelectionRange(m.start, m.end);
     const linesBefore = el.modalResponse.value.substring(0, m.start).split('\n').length;
@@ -455,12 +464,11 @@ function switchModalMode(mode) {
   modalViewMode = mode;
   el.modalModeBtns.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
 
-  // Re-run any active search in the new mode
   const q = el.modalFindInput.value;
   if (q && !el.modalFindBar.classList.contains('hidden')) runModalSearch(q);
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Misc helpers ──────────────────────────────────────────────────────────────
 
 function escHtml(str) {
   return String(str)
@@ -531,7 +539,11 @@ function renderRequestList() {
     const div = document.createElement('div');
     div.className = 'req-item';
     if (req.id === state.selectedId) div.classList.add('selected');
-    const hasActiveOverride = state.overrides[req.operationName]?.enabled && !state.overridesPaused;
+
+    const hasActiveOverride = !state.overridesPaused && state.overrides.some(
+      (ov) => ov.enabled && ov.operationName === req.operationName &&
+               matchesVariables(ov.variables, req.variables)
+    );
     if (hasActiveOverride) div.classList.add('mocked');
 
     const ok = req.status >= 200 && req.status < 300;
@@ -557,7 +569,10 @@ function selectRequest(id) {
   el.detailBody.classList.remove('hidden');
   el.overrideOpLabel.textContent = req.operationName;
 
-  const hasOverride = !!state.overrides[req.operationName]?.enabled;
+  const hasOverride = state.overrides.some(
+    (ov) => ov.enabled && ov.operationName === req.operationName &&
+             matchesVariables(ov.variables, req.variables)
+  );
   el.overrideActiveBadge.classList.toggle('hidden', !hasOverride || state.overridesPaused);
 
   renderDetailContent(req);
@@ -566,18 +581,14 @@ function selectRequest(id) {
 function renderDetailContent(req) {
   closeDetailSearch();
 
-  // Query — plain pre
   el.dQuery.textContent = req.query || '(no query)';
 
-  // Variables — JSON tree
   el.dVariables.innerHTML = '';
   el.dVariables.appendChild(buildJsonTree(req.variables ?? {}));
 
-  // Response — JSON tree
   el.dResponse.innerHTML = '';
   el.dResponse.appendChild(buildJsonTree(req.response));
 
-  // Headers — plain pre
   el.dHeaders.textContent = formatHeaders(req.reqHeaders, req.resHeaders);
 
   showActiveDetailView();
@@ -607,16 +618,18 @@ function togglePauseAll() {
   persistAndSync();
   updatePauseBtn();
   renderRequestList();
-  // Refresh badge on selected request
   const req = state.requests.find((r) => r.id === state.selectedId);
   if (req) {
-    const hasOverride = !!state.overrides[req.operationName]?.enabled;
+    const hasOverride = state.overrides.some(
+      (ov) => ov.enabled && ov.operationName === req.operationName &&
+               matchesVariables(ov.variables, req.variables)
+    );
     el.overrideActiveBadge.classList.toggle('hidden', !hasOverride || state.overridesPaused);
   }
 }
 
 function updatePauseBtn() {
-  const anyOverrides = Object.keys(state.overrides).length > 0;
+  const anyOverrides = state.overrides.length > 0;
   el.btnPauseAll.disabled = !anyOverrides;
   el.btnPauseAll.classList.toggle('paused', state.overridesPaused);
   el.btnPauseAll.textContent = state.overridesPaused ? '▶ Overrides' : '⏸ Overrides';
@@ -626,68 +639,84 @@ function updatePauseBtn() {
 // ── Overrides: storage + sync ─────────────────────────────────────────────────
 
 function loadOverrides() {
-  chrome.storage.local.get('gqlOverrides', (res) => {
-    state.overrides = res.gqlOverrides ?? {};
+  chrome.storage.local.get(['gqlOverrides', 'gqlOverridesPaused'], (res) => {
+    let saved = res.gqlOverrides ?? [];
+    // Migrate from old object format { opName: { enabled, response } } to array.
+    if (!Array.isArray(saved)) {
+      saved = Object.entries(saved).map(([opName, ov]) => ({
+        id:            uid(),
+        operationName: opName,
+        variables:     {},
+        response:      ov.response,
+        enabled:       ov.enabled ?? true,
+      }));
+    }
+    state.overrides       = saved;
+    state.overridesPaused = res.gqlOverridesPaused ?? false;
     renderOverrides();
     updatePauseBtn();
-    // Push to the page so existing overrides are active even if the content
-    // script's initial push was lost before the panel was open.
     persistAndSync();
   });
 }
 
 function persistAndSync() {
-  chrome.storage.local.set({ gqlOverrides: state.overrides });
-  const toSync = state.overridesPaused ? {} : state.overrides;
-  chrome.runtime.sendMessage({
-    type: 'GQL_RELAY',
-    tabId: chrome.devtools.inspectedWindow.tabId,
-    payload: { type: 'GQL_SET_OVERRIDES', overrides: toSync },
-  });
+  chrome.storage.local.set({ gqlOverrides: state.overrides, gqlOverridesPaused: state.overridesPaused });
+  const toSync = state.overridesPaused ? [] : state.overrides;
+  chrome.devtools.inspectedWindow.eval(
+    `window.__gqlOverrides = ${JSON.stringify(toSync)}`,
+    (_result, isException) => {
+      if (isException) console.warn('GQL DevTools: failed to sync overrides to page');
+    }
+  );
 }
 
 // ── Render: overrides tab ─────────────────────────────────────────────────────
 
 function renderOverrides() {
-  const keys = Object.keys(state.overrides);
-  el.overridesEmpty.style.display = keys.length ? 'none' : '';
+  el.overridesEmpty.style.display = state.overrides.length ? 'none' : '';
   el.overridesList.innerHTML = '';
   updatePauseBtn();
 
-  keys.forEach((key) => {
-    const ov = state.overrides[key];
+  state.overrides.forEach((ov) => {
     const card = document.createElement('div');
     card.className = `ov-card${ov.enabled ? '' : ' disabled'}`;
 
-    const preview = JSON.stringify(ov.response).slice(0, 120);
+    const hasVars = ov.variables && Object.keys(ov.variables).length > 0;
+    const varLine = hasVars
+      ? `<div class="ov-vars">${escHtml(JSON.stringify(ov.variables)).slice(0, 120)}</div>`
+      : `<div class="ov-vars ov-vars-any">(matches any variables)</div>`;
+    const preview = escHtml(JSON.stringify(ov.response)).slice(0, 120);
+
     card.innerHTML =
       `<div class="ov-head">` +
-        `<span class="ov-name">${key}</span>` +
+        `<span class="ov-name">${escHtml(ov.operationName)}</span>` +
         `<button class="ov-toggle ${ov.enabled ? 'on' : 'off'}">${ov.enabled ? 'Enabled' : 'Disabled'}</button>` +
         `<button class="ov-edit">Edit</button>` +
         `<button class="ov-del">Delete</button>` +
       `</div>` +
+      varLine +
       `<div class="ov-preview">${preview}…</div>`;
 
-    card.querySelector('.ov-toggle').addEventListener('click', () => toggleOverride(key));
+    card.querySelector('.ov-toggle').addEventListener('click', () => toggleOverride(ov.id));
     card.querySelector('.ov-edit').addEventListener('click', () =>
-      openModal(key, JSON.stringify(ov.response, null, 2), true)
+      openModal(ov.id, ov.operationName, ov.variables ?? {}, JSON.stringify(ov.response, null, 2))
     );
-    card.querySelector('.ov-del').addEventListener('click', () => deleteOverride(key));
+    card.querySelector('.ov-del').addEventListener('click', () => deleteOverride(ov.id));
     el.overridesList.appendChild(card);
   });
 }
 
-function toggleOverride(key) {
-  if (!state.overrides[key]) return;
-  state.overrides[key].enabled = !state.overrides[key].enabled;
+function toggleOverride(id) {
+  const ov = state.overrides.find((o) => o.id === id);
+  if (!ov) return;
+  ov.enabled = !ov.enabled;
   persistAndSync();
   renderOverrides();
   renderRequestList();
 }
 
-function deleteOverride(key) {
-  delete state.overrides[key];
+function deleteOverride(id) {
+  state.overrides = state.overrides.filter((o) => o.id !== id);
   persistAndSync();
   renderOverrides();
   renderRequestList();
@@ -695,16 +724,29 @@ function deleteOverride(key) {
 
 // ── Override editor modal ─────────────────────────────────────────────────────
 
-function openModal(opName, responseJson, isEdit) {
-  el.modalTitle.textContent = isEdit ? 'Edit Override' : 'New Override';
+function openModal(id, opName, variables, responseJson) {
+  currentModalId   = id;        // null = new override
+  currentModalVars = variables;
+
+  el.modalTitle.textContent = id ? 'Edit Override' : 'New Override';
   el.modalOpName.value = opName;
   el.modalResponse.value = responseJson;
   el.modalError.classList.add('hidden');
   closeModalSearch();
 
-  // Default to tree mode (always valid JSON since we only store/save valid responses).
-  // Set modalViewMode to 'edit' first so switchModalMode's re-search logic doesn't
-  // try to clear tree highlights that don't exist yet.
+  // Render the variables this override will match against (read-only).
+  el.modalVarsWrap.innerHTML = '';
+  const hasVars = variables && Object.keys(variables).length > 0;
+  if (hasVars) {
+    el.modalVarsWrap.appendChild(buildJsonTree(variables, 2));
+  } else {
+    const hint = document.createElement('span');
+    hint.className = 'ov-vars-any';
+    hint.textContent = 'any — matches all requests for this operation';
+    el.modalVarsWrap.appendChild(hint);
+  }
+
+  // Open in tree mode.
   modalViewMode = 'edit';
   el.modalResponse.classList.remove('hidden');
   el.modalTreeWrap.classList.add('hidden');
@@ -716,10 +758,11 @@ function openModal(opName, responseJson, isEdit) {
 function closeModal() {
   el.modal.classList.add('hidden');
   closeModalSearch();
+  currentModalId   = null;
+  currentModalVars = {};
 }
 
 function saveModal() {
-  const key = el.modalOpName.value.trim();
   let parsed;
   try {
     parsed = JSON.parse(el.modalResponse.value);
@@ -729,14 +772,34 @@ function saveModal() {
     return;
   }
 
-  state.overrides[key] = { enabled: true, response: parsed, savedAt: Date.now() };
+  if (currentModalId) {
+    // Editing an existing override — update only the response.
+    const ov = state.overrides.find((o) => o.id === currentModalId);
+    if (ov) { ov.response = parsed; ov.enabled = true; }
+  } else {
+    // New override.
+    state.overrides.push({
+      id:            uid(),
+      operationName: el.modalOpName.value.trim(),
+      variables:     currentModalVars,
+      response:      parsed,
+      enabled:       true,
+      savedAt:       Date.now(),
+    });
+  }
+
   persistAndSync();
   renderOverrides();
   renderRequestList();
 
   const req = state.requests.find((r) => r.id === state.selectedId);
-  if (req?.operationName === key && !state.overridesPaused)
-    el.overrideActiveBadge.classList.remove('hidden');
+  if (req && !state.overridesPaused) {
+    const hasOverride = state.overrides.some(
+      (ov) => ov.enabled && ov.operationName === req.operationName &&
+               matchesVariables(ov.variables, req.variables)
+    );
+    el.overrideActiveBadge.classList.toggle('hidden', !hasOverride);
+  }
 
   closeModal();
 }
@@ -786,22 +849,12 @@ function wireEvents() {
   el.detailFindNext.addEventListener('click',  () => navigateDetail(1));
   el.detailFindClose.addEventListener('click', () => closeDetailSearch());
 
-  // Cmd/Ctrl+F anywhere in the panel opens the detail find bar (when detail is visible)
   document.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
-      // Only intercept if detail body is visible and the modal is not open
       const modalOpen  = !el.modal.classList.contains('hidden');
       const detailOpen = !el.detailBody.classList.contains('hidden');
-
-      if (!modalOpen && detailOpen) {
-        e.preventDefault();
-        openDetailSearch();
-        return;
-      }
-      if (modalOpen) {
-        e.preventDefault();
-        openModalSearch();
-      }
+      if (!modalOpen && detailOpen) { e.preventDefault(); openDetailSearch(); return; }
+      if (modalOpen)                { e.preventDefault(); openModalSearch(); }
     }
   });
 
@@ -815,7 +868,6 @@ function wireEvents() {
   el.modalFindNext.addEventListener('click',  () => navigateModal(1));
   el.modalFindClose.addEventListener('click', () => closeModalSearch());
 
-  // Cmd+F inside textarea → open modal search bar
   el.modalResponse.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'f') { e.preventDefault(); openModalSearch(); }
     if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveModal(); }
@@ -847,15 +899,19 @@ function wireEvents() {
     el.btnRecord.textContent = state.recording ? '● Recording' : '○ Paused';
   });
 
-  // Save as Override
+  // Save as Override — match on both operation name AND variables
   el.btnSaveOverride.addEventListener('click', () => {
     const req = state.requests.find((r) => r.id === state.selectedId);
     if (!req) return;
-    const existing = state.overrides[req.operationName];
+    const existing = state.overrides.find(
+      (ov) => ov.operationName === req.operationName &&
+               matchesVariables(ov.variables, req.variables)
+    );
     openModal(
+      existing?.id ?? null,
       req.operationName,
-      JSON.stringify(existing ? existing.response : req.response, null, 2),
-      !!existing
+      req.variables ?? {},
+      JSON.stringify(existing ? existing.response : req.response, null, 2)
     );
   });
 
@@ -872,17 +928,12 @@ function wireEvents() {
 }
 
 // ── Background port ───────────────────────────────────────────────────────────
-// Keeps the MV3 service worker alive while DevTools is open.
-// Background detects disconnect (DevTools closed) and clears overrides from the page.
-// Background notifies us (GQL_PAGE_NAVIGATED) when the page navigates so we re-push
-// overrides, honouring the current pause state.
 
 function connectToBackground() {
   const port = chrome.runtime.connect({ name: 'gql-panel' });
   port.postMessage({ type: 'GQL_PANEL_INIT', tabId: chrome.devtools.inspectedWindow.tabId });
-  port.onMessage.addListener((msg) => {
-    if (msg.type === 'GQL_PAGE_NAVIGATED') persistAndSync();
-  });
+  // Port is kept open to prevent the MV3 service worker from being suspended and
+  // to let background detect when DevTools closes (port disconnect → clear overrides).
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -892,6 +943,7 @@ function init() {
   loadOverrides();
   wireEvents();
   chrome.devtools.network.onRequestFinished.addListener(onRequestFinished);
+  chrome.devtools.network.onNavigated.addListener(() => persistAndSync());
 }
 
 init();

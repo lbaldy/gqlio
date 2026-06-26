@@ -405,6 +405,17 @@ mark.smatch.current {
 .ov-del:hover  { color: var(--red); border-color: var(--red); }
 .ov-edit:hover { color: var(--text); }
 
+.ov-vars {
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-vars-any { font-style: italic; }
+
 .ov-preview {
   font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
   font-size: 11px;
@@ -507,6 +518,18 @@ mark.smatch.current {
 }
 .modal-mode-btn:hover  { background: var(--bg3); color: var(--text); }
 .modal-mode-btn.active { background: var(--accent-bg); color: var(--blue); }
+
+/* Variables display inside the modal */
+.modal-vars-wrap {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg0);
+  padding: 6px 10px;
+  max-height: 100px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.modal-vars-wrap .ov-vars-any { color: var(--muted); font-style: italic; }
 
 /* Tree view inside the modal */
 .modal-tree-wrap {
