@@ -660,14 +660,19 @@ function loadOverrides() {
 }
 
 function persistAndSync() {
-  chrome.storage.local.set({ gqlOverrides: state.overrides, gqlOverridesPaused: state.overridesPaused });
-  const toSync = state.overridesPaused ? [] : state.overrides;
-  chrome.devtools.inspectedWindow.eval(
-    `window.__gqlOverrides = ${JSON.stringify(toSync)}`,
-    (_result, isException) => {
-      if (isException) console.warn('GQL DevTools: failed to sync overrides to page');
-    }
-  );
+  if (!chrome.runtime?.id) return; // Extension context invalidated — bail silently.
+  try {
+    chrome.storage.local.set({ gqlOverrides: state.overrides, gqlOverridesPaused: state.overridesPaused });
+    const toSync = state.overridesPaused ? [] : state.overrides;
+    chrome.devtools.inspectedWindow.eval(
+      `window.__gqlOverrides = ${JSON.stringify(toSync)}`,
+      (_result, isException) => {
+        if (isException) console.warn('GQL DevTools: eval failed — page context may not be ready yet');
+      }
+    );
+  } catch (e) {
+    console.warn('GQL DevTools: persistAndSync failed', e.message);
+  }
 }
 
 // ── Render: overrides tab ─────────────────────────────────────────────────────
@@ -930,10 +935,22 @@ function wireEvents() {
 // ── Background port ───────────────────────────────────────────────────────────
 
 function connectToBackground() {
-  const port = chrome.runtime.connect({ name: 'gql-panel' });
-  port.postMessage({ type: 'GQL_PANEL_INIT', tabId: chrome.devtools.inspectedWindow.tabId });
-  // Port is kept open to prevent the MV3 service worker from being suspended and
-  // to let background detect when DevTools closes (port disconnect → clear overrides).
+  if (!chrome.runtime?.id) return; // Extension context invalidated — give up.
+  try {
+    const port = chrome.runtime.connect({ name: 'gql-panel' });
+    port.postMessage({ type: 'GQL_PANEL_INIT', tabId: chrome.devtools.inspectedWindow.tabId });
+    port.onDisconnect.addListener(() => {
+      if (!chrome.runtime?.id) return; // Truly invalidated — DevTools needs reload.
+      // Service worker was restarted (not a real DevTools close). Reconnect and
+      // re-push overrides because background will have cleared them on disconnect.
+      setTimeout(() => {
+        connectToBackground();
+        persistAndSync();
+      }, 200);
+    });
+  } catch (e) {
+    console.warn('GQL DevTools: could not connect to background', e.message);
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
