@@ -1100,7 +1100,8 @@ function init() {
   // IPC call handled by the browser process, so it typically completes even if
   // the panel page unloads immediately after.
   window.addEventListener('beforeunload', () => {
-    chrome.storage.local.set({ gqlActiveOverrides: [] });
+    if (!chrome.runtime?.id) return;
+    try { chrome.storage.local.set({ gqlActiveOverrides: [] }); } catch {}
   });
 }
 
