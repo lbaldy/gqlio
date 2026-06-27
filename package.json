@@ -1,0 +1,15 @@
+{
+  "name": "gql-devtools",
+  "version": "1.0.0",
+  "description": "GraphQL request inspector and override tool built into Chrome DevTools",
+  "private": true,
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT"
+}

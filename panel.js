@@ -14,22 +14,7 @@ let modalViewMode    = 'tree'; // 'tree' | 'edit'
 let currentModalId   = null;   // null = new override, string = editing existing
 let currentModalVars = {};     // variables captured when opening the modal
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function deepEqual(a, b) {
-  if (a === b) return true;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  const ka = Object.keys(a), kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
-  return ka.every((k) => deepEqual(a[k], b[k]));
-}
-
-// Empty stored variables = wildcard (matches any request variables).
-function matchesVariables(ovVars, reqVars) {
-  const ov = ovVars ?? {};
-  if (Object.keys(ov).length === 0) return true;
-  return deepEqual(ov, reqVars ?? {});
-}
+// deepEqual and matchesVariables are loaded from utils.js before this script.
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
