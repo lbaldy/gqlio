@@ -2,6 +2,7 @@
 const state = {
   requests:        [],
   selectedId:      null,
+  selectedIds:     new Set(), // multi-select for bulk actions
   overrides:       [], // [{ id, operationName, variables, response, enabled }]
   overridesPaused: false,
   recording:       true,
@@ -41,8 +42,15 @@ const el = {
   btnClear:         $('btn-clear'),
   btnRecord:        $('btn-record'),
   // request list
-  reqList:          $('req-list'),
-  reqEmpty:         $('req-empty'),
+  reqList:              $('req-list'),
+  reqEmpty:             $('req-empty'),
+  selectAllCheckbox:    $('select-all-checkbox'),
+  bulkBar:              $('bulk-bar'),
+  bulkCount:            $('bulk-count'),
+  btnSaveAll:           $('btn-save-all'),
+  btnClearSel:          $('btn-clear-sel'),
+  colDivider:           $('col-divider'),
+  reqListCol:           $('req-list-col'),
   // detail
   detailPlaceholder:$('detail-placeholder'),
   detailBody:       $('detail-body'),
@@ -527,10 +535,32 @@ function uid() { return Math.random().toString(36).slice(2); }
 
 // ── Render: request list ──────────────────────────────────────────────────────
 
-function renderRequestList() {
-  const visible = state.requests.filter(
+function getVisibleRequests() {
+  return state.requests.filter(
     (r) => !state.filter || r.operationName.toLowerCase().includes(state.filter)
   );
+}
+
+function updateBulkBar() {
+  const count = state.selectedIds.size;
+  el.bulkBar.classList.toggle('hidden', count === 0);
+  el.bulkCount.textContent = `${count} selected`;
+}
+
+function updateSelectAll() {
+  const visible = getVisibleRequests();
+  if (!visible.length) {
+    el.selectAllCheckbox.checked       = false;
+    el.selectAllCheckbox.indeterminate = false;
+    return;
+  }
+  const n = visible.filter((r) => state.selectedIds.has(r.id)).length;
+  el.selectAllCheckbox.checked       = n === visible.length;
+  el.selectAllCheckbox.indeterminate = n > 0 && n < visible.length;
+}
+
+function renderRequestList() {
+  const visible = getVisibleRequests();
 
   el.reqEmpty.style.display = visible.length ? 'none' : '';
   el.reqList.innerHTML = '';
@@ -538,7 +568,8 @@ function renderRequestList() {
   visible.forEach((req) => {
     const div = document.createElement('div');
     div.className = 'req-item';
-    if (req.id === state.selectedId) div.classList.add('selected');
+    if (req.id === state.selectedId)   div.classList.add('selected');
+    if (state.selectedIds.has(req.id)) div.classList.add('checked');
 
     const hasActiveOverride = !state.overridesPaused && state.overrides.some(
       (ov) => ov.enabled && ov.operationName === req.operationName &&
@@ -546,15 +577,40 @@ function renderRequestList() {
     );
     if (hasActiveOverride) div.classList.add('mocked');
 
-    const ok = req.status >= 200 && req.status < 300;
-    div.innerHTML =
-      `<span class="req-name" title="${req.operationName}">${req.operationName}</span>` +
-      `<span class="${ok ? 'req-status-ok' : 'req-status-err'}">${req.status}</span>` +
-      `<span class="req-time">${req.time}</span>`;
+    // Checkbox — change event only, click is stopped so the row handler doesn't fire
+    const cb = document.createElement('input');
+    cb.type      = 'checkbox';
+    cb.className = 'req-checkbox';
+    cb.checked   = state.selectedIds.has(req.id);
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', () => {
+      if (cb.checked) state.selectedIds.add(req.id);
+      else            state.selectedIds.delete(req.id);
+      div.classList.toggle('checked', cb.checked);
+      updateBulkBar();
+      updateSelectAll();
+    });
 
+    const ok = req.status >= 200 && req.status < 300;
+    const name   = document.createElement('span');
+    name.className = 'req-name';
+    name.title     = req.operationName;
+    name.textContent = req.operationName;
+
+    const status = document.createElement('span');
+    status.className = ok ? 'req-status-ok' : 'req-status-err';
+    status.textContent = req.status;
+
+    const time = document.createElement('span');
+    time.className   = 'req-time';
+    time.textContent = req.time;
+
+    div.append(cb, name, status, time);
     div.addEventListener('click', () => selectRequest(req.id));
     el.reqList.appendChild(div);
   });
+
+  updateSelectAll();
 }
 
 // ── Render: detail pane ───────────────────────────────────────────────────────
@@ -809,6 +865,71 @@ function saveModal() {
   closeModal();
 }
 
+// ── Bulk save ─────────────────────────────────────────────────────────────────
+
+function saveSelectedAsOverrides() {
+  state.requests
+    .filter((r) => state.selectedIds.has(r.id))
+    .forEach((req) => {
+      const existing = state.overrides.find(
+        (ov) => ov.operationName === req.operationName &&
+                 matchesVariables(ov.variables, req.variables)
+      );
+      if (existing) {
+        existing.response = req.response;
+        existing.enabled  = true;
+      } else {
+        state.overrides.push({
+          id:            uid(),
+          operationName: req.operationName,
+          variables:     req.variables ?? {},
+          response:      req.response,
+          enabled:       true,
+          savedAt:       Date.now(),
+        });
+      }
+    });
+
+  state.selectedIds.clear();
+  persistAndSync();
+  renderOverrides();
+  renderRequestList();
+  updateBulkBar();
+}
+
+// ── Column resize ─────────────────────────────────────────────────────────────
+
+function initColumnResize() {
+  const saved = localStorage.getItem('gql-col-width');
+  if (saved) el.reqListCol.style.width = `${parseInt(saved, 10)}px`;
+
+  let startX = 0, startW = 0;
+
+  el.colDivider.addEventListener('mousedown', (e) => {
+    startX = e.clientX;
+    startW = el.reqListCol.offsetWidth;
+    el.colDivider.classList.add('dragging');
+    document.body.style.cssText += ';cursor:col-resize!important;user-select:none';
+
+    const onMove = (e) => {
+      const w = Math.max(140, Math.min(560, startW + e.clientX - startX));
+      el.reqListCol.style.width = `${w}px`;
+    };
+    const onUp = () => {
+      el.colDivider.classList.remove('dragging');
+      document.body.style.cursor    = '';
+      document.body.style.userSelect = '';
+      localStorage.setItem('gql-col-width', el.reqListCol.offsetWidth);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+    e.preventDefault();
+  });
+}
+
 // ── Event wiring ──────────────────────────────────────────────────────────────
 
 function wireEvents() {
@@ -889,12 +1010,32 @@ function wireEvents() {
 
   // Clear
   el.btnClear.addEventListener('click', () => {
-    state.requests = [];
+    state.requests   = [];
     state.selectedId = null;
+    state.selectedIds.clear();
     el.detailPlaceholder.classList.remove('hidden');
     el.detailBody.classList.add('hidden');
     closeDetailSearch();
     renderRequestList();
+    updateBulkBar();
+  });
+
+  // Select all / deselect all
+  el.selectAllCheckbox.addEventListener('change', () => {
+    getVisibleRequests().forEach((r) => {
+      if (el.selectAllCheckbox.checked) state.selectedIds.add(r.id);
+      else                               state.selectedIds.delete(r.id);
+    });
+    renderRequestList();
+    updateBulkBar();
+  });
+
+  // Bulk save + clear selection
+  el.btnSaveAll.addEventListener('click',  saveSelectedAsOverrides);
+  el.btnClearSel.addEventListener('click', () => {
+    state.selectedIds.clear();
+    renderRequestList();
+    updateBulkBar();
   });
 
   // Record toggle
@@ -959,6 +1100,7 @@ function init() {
   connectToBackground();
   loadOverrides();
   wireEvents();
+  initColumnResize();
   chrome.devtools.network.onRequestFinished.addListener(onRequestFinished);
   chrome.devtools.network.onNavigated.addListener(() => persistAndSync());
 }

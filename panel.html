@@ -26,11 +26,19 @@
 
     <div id="req-list-col">
       <div class="list-header">
+        <input type="checkbox" id="select-all-checkbox" class="req-checkbox" title="Select / deselect all">
         <span>Operation</span><span>Status</span><span>ms</span>
       </div>
       <div id="req-list"></div>
       <div id="req-empty" class="empty">Open a page and make GraphQL requests — they'll appear here.</div>
+      <div id="bulk-bar" class="bulk-bar hidden">
+        <span id="bulk-count"></span>
+        <button id="btn-save-all"  class="bulk-btn">Save as overrides</button>
+        <button id="btn-clear-sel" class="bulk-btn secondary" title="Clear selection">✕</button>
+      </div>
     </div>
+
+    <div id="col-divider" class="col-divider"></div>
 
     <div id="req-detail-col">
       <div id="detail-placeholder" class="empty">Select a request to inspect it.</div>

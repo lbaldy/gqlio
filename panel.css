@@ -107,16 +107,26 @@ body {
 /* ── Request list column ─────────────────────────────────────────────────── */
 #req-list-col {
   width: 260px;
-  min-width: 160px;
+  min-width: 140px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   flex-shrink: 0;
 }
 
+/* Draggable divider between the two columns */
+.col-divider {
+  width: 4px;
+  background: var(--border);
+  cursor: col-resize;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+.col-divider:hover,
+.col-divider.dragging { background: var(--blue); }
+
 .list-header {
   display: grid;
-  grid-template-columns: 1fr 44px 44px;
+  grid-template-columns: 28px 1fr 44px 44px;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   padding: 4px 8px;
@@ -125,6 +135,7 @@ body {
   text-transform: uppercase;
   letter-spacing: .04em;
   flex-shrink: 0;
+  align-items: center;
 }
 
 #req-list { flex: 1; overflow-y: auto; }
@@ -132,13 +143,52 @@ body {
 
 .req-item {
   display: grid;
-  grid-template-columns: 1fr 44px 44px;
+  grid-template-columns: 28px 1fr 44px 44px;
   align-items: center;
   padding: 5px 8px;
   cursor: pointer;
   border-bottom: 1px solid var(--bg2);
   border-left: 2px solid transparent;
 }
+.req-item.checked { background: rgba(79, 195, 247, .06); }
+
+.req-checkbox {
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+  accent-color: var(--blue);
+  flex-shrink: 0;
+}
+
+/* Bulk action bar */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.bulk-bar.hidden { display: none; }
+#bulk-count { flex: 1; color: var(--muted); font-size: 11px; }
+.bulk-btn {
+  background: var(--accent-bg);
+  border: 1px solid var(--blue);
+  color: var(--blue);
+  padding: 2px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.bulk-btn:hover { background: #1a4a72; }
+.bulk-btn.secondary {
+  background: var(--bg3);
+  border-color: var(--border);
+  color: var(--muted);
+}
+.bulk-btn.secondary:hover { color: var(--text); }
 .req-item:hover    { background: var(--bg2); }
 .req-item.selected { background: var(--accent-bg); border-left-color: var(--blue); }
 .req-item.mocked   { border-left-color: var(--orange); }
