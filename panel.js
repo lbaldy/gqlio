@@ -718,8 +718,15 @@ function loadOverrides() {
 function persistAndSync() {
   if (!chrome.runtime?.id) return; // Extension context invalidated — bail silently.
   try {
-    chrome.storage.local.set({ gqlOverrides: state.overrides, gqlOverridesPaused: state.overridesPaused });
     const toSync = state.overridesPaused ? [] : state.overrides;
+    // gqlOverrides       — full list, never auto-cleared (source of truth for the panel)
+    // gqlActiveOverrides — what content.js reads on page load; empty when DevTools is closed
+    // gqlOverridesPaused — persisted so pause state survives panel reopen
+    chrome.storage.local.set({
+      gqlOverrides:       state.overrides,
+      gqlActiveOverrides: toSync,
+      gqlOverridesPaused: state.overridesPaused,
+    });
     chrome.devtools.inspectedWindow.eval(
       `window.__gqlOverrides = ${JSON.stringify(toSync)}`,
       (_result, isException) => {
@@ -1103,6 +1110,13 @@ function init() {
   initColumnResize();
   chrome.devtools.network.onRequestFinished.addListener(onRequestFinished);
   chrome.devtools.network.onNavigated.addListener(() => persistAndSync());
+
+  // Best-effort clear when DevTools is closed. chrome.storage.local.set is an
+  // IPC call handled by the browser process, so it typically completes even if
+  // the panel page unloads immediately after.
+  window.addEventListener('beforeunload', () => {
+    chrome.storage.local.set({ gqlActiveOverrides: [] });
+  });
 }
 
 init();

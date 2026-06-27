@@ -1,5 +1,5 @@
 // Keeps the MV3 service worker alive while DevTools is open (long-lived port).
-// When the port disconnects (DevTools closed), clear overrides directly in the page.
+// On disconnect (DevTools closed): clears both storage and the live page.
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'gql-panel') return;
@@ -12,11 +12,16 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onDisconnect.addListener(() => {
     if (tabId === null) return;
-    // Wipe overrides in the page's main world so intercepting stops immediately.
+
+    // Clear the active-overrides storage key so the next page load (handled by
+    // content.js) does not re-activate overrides after DevTools is closed.
+    chrome.storage.local.set({ gqlActiveOverrides: [] });
+
+    // Also wipe the live page's override map for the current load.
     chrome.scripting.executeScript({
       target: { tabId },
-      world: 'MAIN',
-      func: () => { if (typeof window.__gqlOverrides !== 'undefined') window.__gqlOverrides = {}; },
+      world:  'MAIN',
+      func:   () => { if (typeof window.__gqlOverrides !== 'undefined') window.__gqlOverrides = []; },
     }).catch(() => {});
   });
 });
