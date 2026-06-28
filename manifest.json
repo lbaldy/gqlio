@@ -3,6 +3,11 @@
   "name": "GQL Inspect and Override",
   "version": "1.0.0",
   "description": "GraphQL request inspector and override tool built into Chrome DevTools",
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": ["storage", "scripting"],
   "host_permissions": ["<all_urls>"],
   "devtools_page": "devtools.html",
