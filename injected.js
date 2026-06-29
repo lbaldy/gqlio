@@ -69,9 +69,19 @@
 
   // ── Browser side-effects (fetch + XHR patching) ──────────────────────────────
 
+  const GQL_PATH_RE = /graphql|\/gql(?:[/?#]|$)/i;
+
+  function looksLikeGql(url) {
+    const s = typeof url === 'string' ? url : (url?.url ?? '');
+    return GQL_PATH_RE.test(s);
+  }
+
   if (win) {
     const originalFetch = win.fetch;
     win.fetch = async function (resource, init) {
+      if (!win.__gqlOverrides.length) return originalFetch.call(this, resource, init);
+      if (!looksLikeGql(resource)) return originalFetch.call(this, resource, init);
+
       const method = (
         init?.method ||
         (resource instanceof Request ? resource.method : 'GET')
@@ -102,7 +112,7 @@
     };
 
     win.XMLHttpRequest.prototype.send = function (body) {
-      if (this._gqlMethod?.toUpperCase() === 'POST') {
+      if (this._gqlMethod?.toUpperCase() === 'POST' && win.__gqlOverrides.length && looksLikeGql(this._gqlUrl)) {
         const override = findOverride(typeof body === 'string' ? body : null);
         if (override) {
           const xhr = this;
